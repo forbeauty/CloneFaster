@@ -28,17 +28,19 @@ if you conda channels unavailable for transformers, use 'pip install transformer
 ```
 conda create -n innovation python=3.8
 conda activate innovation
-conda install pytorch torchvision torchaudio cudatoolkit=11.1 -c pytorch -c conda-forge
+conda install pytorch==1.7.0 torchvision==0.8.0 torchaudio==0.7.0 cudatoolkit=10.2 -c pytorch
 conda install -c huggingface transformers
 conda install notebook
 conda install pandas
 conda install matplotlib
+conda install -c conda-forge scikit-learn 
+pip install pytorch-lightning==1.2.0
 pip install PyYAML
 ```
 
 ### Git
 
-clone a remote repository in your local machine.
+clone a remote repository at your local machine.
 
 ```
 git clone https://github.com/naive-one/Innovation-Competition
@@ -46,7 +48,41 @@ git clone https://github.com/naive-one/Innovation-Competition
 
 if you are fresh for git, read the simple guide for git at the end. 
 
+## Train
 
+### dataset process
+
+1.把BERT的Embedding层中的[UNK]、[CLS]、[SEP]等特殊标记拿出来，这部分不变，其余部分根据统计的密文数据和明文数据的字频进行初始化，可以加快加快模型的收敛速度。
+
+2.数据增强，q1-q2=1,q1-q3=1 ---> q1-q3=1。q1-q2=1,q1-q3=0 ---> q1-q3=0
+
+3.数据对偶，交换q1和q2位置
+
+### mask
+
+1.ngram mask
+
+2.random mask
+
+### model
+
+1.不建议用哈工大开源的[RoBERTa-wwm-ext-large](https://github.com/ymcui/Chinese-BERT-wwm)，因为这个版本随机初始化了MLM部分的权重。可以用腾讯UER开源的[BERT Large](https://share.weiyun.com/5G90sMJ)。
+
+2.华为NeZHa
+
+### adversarial Training（对抗训练）
+
+1.PGD
+
+2.FGM
+
+### pretrain task
+
+1.训练数据做MLM和句子相似性任务（[cls]的输出作为预测），测试数据只做MLM任务，同时进行训练。
+
+### fine-tune
+
+1.k-fold
 
 ## Simple Guide for Git
 
