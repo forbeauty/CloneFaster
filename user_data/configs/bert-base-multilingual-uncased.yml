@@ -3,20 +3,21 @@ dataset:
   test_path: tcdata/oppo_breeno_round1_data/gaiic_track3_round1_testA_20210228.tsv
 
 model:
-  pretrained_model_name: bert-base-multilingual-uncased
+  name: bert-base-multilingual-uncased
+  hidden_size: 768
 
 solver:
+  seed: 0
+  k_fold: 5
   batch_size: 32
   accumulation_steps: 1
   transformer_weight_decay: 0.01  # for pretrained transformer parameters
   weight_decay: 0.01              # for non-transformer parameters
-  no_decay:
-    - bias
-    - LayerNorm.weight
   optimizer: AdamW
-  transformer_initial_lr: 2.0e-5  # for pretrained transformer parameters
-  initial_lr: 2.0e-5             # for non-transformer model parameters
-  lr_schedule: warmup_linear
+  criterion: CrossEntropyLoss
+  pretrain_initial_lr: 1.0e-4  # for pretrain
+  train_initial_lr: 2.0e-5           # for train
+  lr_schedule: get_linear_schedule_with_warmup
   warmup_fraction: 0.06
   num_epochs: 50
   max_grad_norm: 1.0

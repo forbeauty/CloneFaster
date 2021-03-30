@@ -9,11 +9,10 @@ def get_args():
         help='Path to the configration yaml file.'
     )
     parser.add_argument(
-        '--gpu-ids',
-        nargs="+",
-        type=int,
-        default=0,
-        help="List of ids of GPUs to use."
+        '--device',
+        type=tuple,
+        default=('gpu', 0),
+        help="tuple[gpu/tpu, num of device]"
     )
     parser.add_argument(
         "--cpu-workers",
@@ -28,7 +27,7 @@ def get_args():
     )
     parser.add_argument(
         "--save-dirpath",
-        default="checkpoints/",
+        default="user_data/checkpoints/",
         help="Path of directory to save checkpoints and logs."
     )
     parser.add_argument(
@@ -50,9 +49,15 @@ def get_args():
         help="Path of the submission zip file."
     )
     parser.add_argument(
-        "--seed",
+        "--fold",
         default=0,
         type=int,
-        help="Random seed."
+        help="n-th fold."
+    )
+    parser.add_argument(
+        "--do-val",
+        default=True,
+        type=bool,
+        help="whether or not validate."
     )
     return parser.parse_args()

@@ -1,66 +1,92 @@
 import os
-import math
 import yaml
-import numpy as np
-
 import torch
-from torch import nn
-from torch.utils.data import DataLoader
-from torch.optim import AdamW
-from torch.nn.utils import clip_grad_norm_
-from tqdm import tqdm
-
-from transformers import get_linear_schedule_with_warmup
-from .dataset import PretrainDataset
-from .model import InnoModel
-from evaluate import evaluate
+import numpy as np
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from .dataset import TrainDataModule
+from .model import TrainInnoModel
+from .utils.args import get_args
 
 
-# For reproducibility.
-def seed_everything(my_seed=0):
-    np.random.seed(my_seed)
-    os.environ['PYTHONHASHSEED'] = str(my_seed)
-    torch.manual_seed(my_seed)
-    torch.cuda.manual_seed_all(my_seed)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+def train(config):
 
+    datamodule = TrainDataModule(config, args)
+    datamodule.setup()
+    model = TrainInnoModel(config)
 
-def train(config, args, device, logger):
-    # Dataset
-    pretrain_dataset = PretrainDataset(config, overfit=args.overfit)
-
-    logger.info(
-        'Training set number of samples: {}'.format(len(train_dataset))
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=args.save_dirpath,
+        filename=None,
+        save_top_k=3,
+        verbose=False,
+        monitor='val_loss',
+        mode='min',
+        prefix='run'
     )
-    logger.info(
-        'Validation set number of samples: {}'.format(len(val_dataset))
+    early_stopping_callback = EarlyStopping(
+        monitor='val_loss',
+        verbose=False,
+        min_delta=0.,
+        patience=3
     )
 
-    assert(
-        config['solver']['batch_size']
-        % config['solver']['accumulation_steps'] == 0
-    )
-    actual_batch_size = (
-        config['solver']['batch_size']
-        // config['solver']['accumulation_steps']
-    )
-    logger.info('Acture batch size: {}'.format(actual_batch_size))
-    logger.info(
-        'Gradient accumulation steps: {}'
-        .format(config['solver']['accumulation_steps'])
-    )
-    logger.info(
-        'Effective batch size: {}'.format(config['solver']['batch_size'])
-    )
-
-    pretrain_dataloader = DataLoader(
-        pretrain_dataset,
-        batch_size=actual_batch_size,
-        shuffle=True,
-        num_workers=args.cpu_workers
-    )
+    trainer = pl.Trainer(accumulate_grad_batches=config['solver'][''],
+                         gpus=args.device[1],
+                         tpu_cores=args.device[1],
+                         max_epochs=config['solver']['num_epochs'],
+                         callbacks=[checkpoint_callback, early_stopping_callback],
+                         gradient_clip_val=1
+                         )
+    trainer.fit(model=model, datamodule=datamodule)
+    trainer.test()
 
 
-    # Model
-    model = InnoModel(config).to(device)
+    model.freeze()  # eval
+    pred_lists = []
+
+    # for inputs, row_id in prod_dataloader:
+    #     if DEVICE == "tpu":
+    #         device = xm.xla_device()
+    #     elif DEVICE == "gpu":
+    #         device = torch.device("cuda")
+    #     else:
+    #         device = torch.device("cpu")
+    #
+    #     inputs["input_ids"] = inputs["input_ids"].to(device)
+    #     inputs["token_type_ids"] = inputs["token_type_ids"].to(device)
+    #     inputs["attention_mask"] = inputs["attention_mask"].to(device)
+    #
+    #     predictions = model.forward(inputs)
+    #     pred_label = torch.argmax(predictions[0], dim=1).cpu().numpy()
+    #     pred_lists.append([row_id[0], pred_label[0]])
+    #
+    # pred_pd = pd.DataFrame(pred_lists, columns=["id", "prediction"])
+    # pred_pd.to_csv('submission.csv', index=False)
+
+
+if __name__ == '__main__':
+
+
+    args = get_args()
+
+    os.makedirs(args.save_dirpath, exist_ok=True)
+    logger = prepare_logger(args.save_dirpath)
+    config = yaml.load(open(args.config), Loader=yaml.FullLoader)
+
+    pl.seed_everything(config['solver']['seed'])
+
+    logger.info(yaml.dump(config, default_flow_style=False))
+    for arg in vars(args):
+        logger.info("{:<20}: {}".format(arg, getattr(args, arg)))
+
+    if isinstance(args.gpu_ids, int):
+        args.gpu_ids = [args.gpu_ids]
+    device = (
+        torch.device("cuda", args.gpu_ids[0])
+        if args.gpu_ids[0] >= 0
+        else torch.device("cpu")
+    )
+
+
+    train(config)
