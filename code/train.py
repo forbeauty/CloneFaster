@@ -4,9 +4,41 @@ import torch
 import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from .dataset import TrainDataModule
-from .model import TrainInnoModel
+from .dataset import PretrainDataModule, TrainDataModule
+from .model import PretrainInnoModel, TrainInnoModel
 from .utils.args import get_args
+
+
+def pretrain(config):
+
+    datamodule = PretrainDataModule(config, args)
+    datamodule.setup()
+    model = PretrainInnoModel(config)
+
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=args.save_dirpath,
+        filename=None,
+        save_top_k=3,
+        verbose=False,
+        monitor='val_loss',
+        mode='min',
+        prefix='train'
+    )
+    early_stopping_callback = EarlyStopping(
+        monitor='val_loss',
+        verbose=False,
+        min_delta=0.,
+        patience=3
+    )
+
+    trainer = pl.Trainer(accumulate_grad_batches=config['solver'][''],
+                         gpus=args.device[1],
+                         tpu_cores=args.device[1],
+                         max_epochs=config['solver']['pretrain_num_epochs'],
+                         callbacks=[checkpoint_callback, early_stopping_callback],
+                         gradient_clip_val=1
+                         )
+    trainer.fit(model=model, datamodule=datamodule)
 
 
 def train(config):
@@ -22,7 +54,7 @@ def train(config):
         verbose=False,
         monitor='val_loss',
         mode='min',
-        prefix='run'
+        prefix='train'
     )
     early_stopping_callback = EarlyStopping(
         monitor='val_loss',
@@ -34,7 +66,7 @@ def train(config):
     trainer = pl.Trainer(accumulate_grad_batches=config['solver'][''],
                          gpus=args.device[1],
                          tpu_cores=args.device[1],
-                         max_epochs=config['solver']['num_epochs'],
+                         max_epochs=config['solver']['train_num_epochs'],
                          callbacks=[checkpoint_callback, early_stopping_callback],
                          gradient_clip_val=1
                          )

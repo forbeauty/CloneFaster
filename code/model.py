@@ -11,17 +11,19 @@ class BertMaskedLM(Module):
 
     def __init__(self, config):
         super().__init__()
-        self.bert = AutoModelForMaskedLM.from_pretrained(config['model']['name'])
+        self.bertmaskedlm = AutoModelForMaskedLM.from_pretrained(config['model']['name'])
 
     def forward(self, batch):
 
-        logits = self.bert(
+        outputs = self.bertmaskedlm(
             input_ids=batch['input_ids'],
             attention_mask=batch['attention_mask'],
-            output_hidden_states=True,
+            labels=batch['lm_label_ids'],
             return_dict=True
         )
-        return logits
+        loss= outputs[0]
+
+        return loss
 
 
 class BertSemanticS(Module):
@@ -49,9 +51,11 @@ class BertSemanticS(Module):
 
 class PretrainInnoModel(pl.LightningModule):
 
-    def __init__(self, config):
+    def __init__(self, config, train_dataloader=None, val_dataloader=None):
         super().__init__()
         self.config = config
+        self.train_dataloader = train_dataloader
+        self.val_dataloader = val_dataloader
         if config['model']['name'] == 'bert-base-multilingual-uncased':
             self.model = BertMaskedLM(config)
         else:
@@ -59,20 +63,30 @@ class PretrainInnoModel(pl.LightningModule):
         self.optimizer_class = getattr(torch.optim, config['solver']['optimizer'])
         self.scheduler_fn = getattr(transformers, config['solver']['lr_schedule'])
         self.criterion_fn = getattr(torch.nn.functional, config['solver']['criterion'])
+
     def forward(self, batch):
 
         return self.model(batch)
 
     def training_step(self, batch, batch_idx):
 
-        logits = self(batch)
-        loss = self.criterion_fn(logits, batch['labels'])
+        # logits = self.model(batch)
+        # loss = self.criterion_fn(logits, batch['labels'])
+        loss = self.model(batch)
         return loss
 
     def configure_optimizers(self):
 
+        train_loader = self.train_dataloader()
+        total_steps = (
+                (len(train_loader.dataset) // (self.hparams.train_batch_size * max(1, self.hparams.gpus)))
+                // self.hparams.accumulate_grad_batches
+                * float(self.hparams.max_epochs))
+        warmup_steps = self.config['solver']['warmup_fraction'] * total_steps
         optimizer = self.optimizer_class(self.parameters(), lr=self.config['solver']['pretrain_initial_lr'])
-        scheduler = self.scheduler_fn(optimizer=optimizer, self.config['solver'][], total_steps)
+        scheduler = self.scheduler_fn(optimizer=optimizer,
+                                      num_warmup_steps=warmup_steps,
+                                      num_tranining_steps=total_steps)
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
@@ -162,7 +176,13 @@ class TrainInnoModel(pl.LightningModule):
         optimizer = self.optimizer_class(grouped_parameters,
                                          lr=self.config['solver']['pretrain_initial_lr'],
                                          weight_decay=self.config['solver']['weight_decay'])
-        total_steps = len(self.train_dataloader)
+
+        train_loader = self.train_dataloader()
+        # Calculate total steps
+        total_steps = (
+            (len(train_loader.dataset) // (self.hparams.train_batch_size * max(1, self.hparams.gpus)))
+            // self.hparams.accumulate_grad_batches
+            * float(self.hparams.max_epochs))
         warmup_steps = self.config['solver']['warmup_fraction'] * total_steps
         scheduler = self.scheduler_fn(optimizer=optimizer,
                                       num_warmup_steps=warmup_steps,
