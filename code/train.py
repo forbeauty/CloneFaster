@@ -17,7 +17,7 @@ def pretrain(config):
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.save_dirpath,
-        filename=None,
+        filename='{epoch}_{val_loss:.4f}',
         save_top_k=3,
         verbose=False,
         monitor='val_loss',
@@ -31,12 +31,13 @@ def pretrain(config):
         patience=3
     )
 
-    trainer = pl.Trainer(accumulate_grad_batches=config['solver'][''],
+    trainer = pl.Trainer(accumulate_grad_batches=config['solver']['accumulation_steps'],
                          gpus=args.device[1],
                          tpu_cores=args.device[1],
                          max_epochs=config['solver']['pretrain_num_epochs'],
                          callbacks=[checkpoint_callback, early_stopping_callback],
-                         gradient_clip_val=1
+                         gradient_clip_val=1,
+                         deterministic=True
                          )
     trainer.fit(model=model, datamodule=datamodule)
 
@@ -49,7 +50,7 @@ def train(config):
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.save_dirpath,
-        filename=None,
+        filename='{epoch}_{val_loss:.4f}',
         save_top_k=3,
         verbose=False,
         monitor='val_loss',
@@ -63,19 +64,20 @@ def train(config):
         patience=3
     )
 
-    trainer = pl.Trainer(accumulate_grad_batches=config['solver'][''],
+    trainer = pl.Trainer(accumulate_grad_batches=config['solver']['accumulation_steps'],
                          gpus=args.device[1],
                          tpu_cores=args.device[1],
                          max_epochs=config['solver']['train_num_epochs'],
                          callbacks=[checkpoint_callback, early_stopping_callback],
-                         gradient_clip_val=1
+                         gradient_clip_val=1,
+                         deterministic=True
                          )
     trainer.fit(model=model, datamodule=datamodule)
-    trainer.test()
+    trainer.test(ckpt_path=config['solver']['ckpt_path'], datamodule=datamodule)
 
 
-    model.freeze()  # eval
-    pred_lists = []
+    # model.freeze()  # eval
+    # pred_lists = []
 
     # for inputs, row_id in prod_dataloader:
     #     if DEVICE == "tpu":
@@ -96,29 +98,29 @@ def train(config):
     # pred_pd = pd.DataFrame(pred_lists, columns=["id", "prediction"])
     # pred_pd.to_csv('submission.csv', index=False)
 
+    # 5-fold
+    # Submission0 = pd.read_csv('./submission0.csv')
+    # Submission1 = pd.read_csv('./submission1.csv')
+    # Submission2 = pd.read_csv('./submission2.csv')
+    # Submission3 = pd.read_csv('./submission3.csv')
+    # Submission4 = pd.read_csv('./submission4.csv')
+    #
+    # Submission = pd.concat([Submission0, Submission1, Submission2, Submission3, Submission4]).groupby('image_name').mean().reset_index()
+    # header = ["image_name","target"]
+    # Submission.to_csv(f'submission.csv', columns = header, index=False)
 
 if __name__ == '__main__':
 
-
     args = get_args()
-
     os.makedirs(args.save_dirpath, exist_ok=True)
-    logger = prepare_logger(args.save_dirpath)
     config = yaml.load(open(args.config), Loader=yaml.FullLoader)
-
     pl.seed_everything(config['solver']['seed'])
+    if config['solver']['mode'] == 'pretrain':
 
-    logger.info(yaml.dump(config, default_flow_style=False))
-    for arg in vars(args):
-        logger.info("{:<20}: {}".format(arg, getattr(args, arg)))
+        pretrain(config)
+    elif config['solver']['mode'] == 'train':
 
-    if isinstance(args.gpu_ids, int):
-        args.gpu_ids = [args.gpu_ids]
-    device = (
-        torch.device("cuda", args.gpu_ids[0])
-        if args.gpu_ids[0] >= 0
-        else torch.device("cpu")
-    )
+        train(config)
+    else:
 
-
-    train(config)
+        raise ValueError

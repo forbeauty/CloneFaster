@@ -2,6 +2,7 @@ import pandas as pd
 import pytorch_lightning as pl
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.dataloader import default_collate
 from transformers import AutoTokenizer
 from sklearn.model_selection import StratifiedKFold
 
@@ -22,53 +23,37 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, index):
 
-        text = self.df['seq1'][index]
-        text_pair = self.df['seq2'][index]
+        text = [int(x) for x in self.df['seq1'][index].split()]
+        text_pair = [int(x) for x in self.df['seq2'][index].split()]
         if self.split == 'pretrain':
             text, t1_label = self._random_word(text)
             text_pair, t2_label = self._random_word(text_pair)
-            lm_label_ids = ([-1] + t1_label + [-1] + t2_label + [-1])
-            tokenize_results = self.tokenizer(text,
-                                              text_pair,
-                                              padding='longest',
-                                              truncation=True,
-                                              max_length=32,
-                                              is_split_into_words=True,
-                                              return_tensors="pt")
-            lm_label_ids = lm_label_ids + [-1] * (tokenize_results['length'] - len(lm_label_ids))
+            input_ids = [101] + text + [102] + text_pair + [102]
+            lm_label_ids = [-1] + t1_label + [-1] + t2_label + [-1]
+            # tokenize_results = self.tokenizer(text,
+            #                                   text_pair,
+            #                                   padding='longest',
+            #                                   truncation=True,
+            #                                   max_length=32,
+            #                                   is_split_into_words=True,
+            #                                   return_tensors="pt")
+
             ret = {
-                'input_ids': tokenize_results['input_ids'],
-                'attention_mask': tokenize_results['attention_mask'],
-                'token_type_ids': tokenize_results['token_type_ids'],
+                'input_ids': input_ids,
                 'lm_label_ids': lm_label_ids
             }
         elif self.split in ['train', 'val']:
-            label = self.df['label'][index]
-            tokenize_results = self.tokenizer(text,
-                                              text_pair,
-                                              padding='longest',
-                                              truncation=True,
-                                              max_length=32,
-                                              is_split_into_words=True,
-                                              return_tensors="pt")
+            input_ids = [101] + text + [102] + text_pair + [102]
+            label = int(self.df['label'][index])
+
             ret = {
-                'input_ids': tokenize_results['input_ids'],
-                'attention_mask': tokenize_results['attention_mask'],
-                'token_type_ids': tokenize_results['token_type_ids'],
+                'input_ids': input_ids,
                 'label': label
             }
         elif self.split == 'test':
-            tokenize_results = self.tokenizer(text,
-                                              text_pair,
-                                              padding='longest',
-                                              truncation=True,
-                                              max_length=32,
-                                              is_split_into_words=True,
-                                              return_tensors="pt")
+            input_ids = [101] + text + [102] + text_pair + [102]
             ret = {
-                'input_ids': tokenize_results['input_ids'],
-                'attention_mask': tokenize_results['attention_mask'],
-                'token_type_ids': tokenize_results['token_type_ids']
+                'input_ids': input_ids
             }
         else:
             raise ValueError()
@@ -148,7 +133,9 @@ class PretrainDataModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset,
                           batch_size=self.config['solver']['batch_size'],
                           shuffle=True,
-                          num_workers=self.args.cpu_workers
+                          num_workers=self.args.cpu_workers,
+                          collate_fn=collate_fn_with_padding,
+                          pin_memory=True
                           )
 
 
@@ -218,7 +205,9 @@ class TrainDataModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset,
                           batch_size=self.config['solver']['batch_size'],
                           shuffle=True,
-                          num_workers=self.args.cpu_workers
+                          num_workers=self.args.cpu_workers,
+                          collate_fn=collate_fn_with_padding,
+                          pin_memory=True
                           )
 
 
@@ -226,13 +215,36 @@ class TrainDataModule(pl.LightningDataModule):
         return DataLoader(self.val_dataset,
                           batch_size=self.config['solver']['batch_size'],
                           shuffle=True,
-                          num_workers=self.args.cpu_workers
+                          num_workers=self.args.cpu_workers,
+                          collate_fn=collate_fn_with_padding,
+                          pin_memory=True
                           )
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset,
                           batch_size=1,
                           shuffle=True,
-                          num_workers=self.args.cpu_workers
+                          num_workers=self.args.cpu_workers,
+                          collate_fn=collate_fn_with_padding,
+                          pin_memory=True
                           )
 
+
+def pad_seq(encoded_inputs, max_length, pad_token_id=0):
+
+    origin_length = len(encoded_inputs["input_ids"])
+    difference = max_length - origin_length
+
+    encoded_inputs["attention_mask"] = [1] * origin_length + [0] * difference
+    encoded_inputs["token_type_ids"] = [1] * origin_length + [0] * difference
+    encoded_inputs["input_ids"] = encoded_inputs["input_ids"] + [pad_token_id] * difference
+    if 'lm_label_ids' in encoded_inputs:
+        encoded_inputs['lm_label_ids'] = encoded_inputs['lm_label_ids'] + [-1] * difference
+    return encoded_inputs
+
+
+def collate_fn_with_padding(batch):
+
+    max_len = max([len(sample['input_ids']) for sample in batch])
+    padded_batch = [pad_seq(sample, max_len) for sample in batch]
+    return default_collate(padded_batch)

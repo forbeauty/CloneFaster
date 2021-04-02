@@ -8,6 +8,8 @@ model:
   pretrained_model_path: user_data/checkpoints/pretrain/
 
 solver:
+  ckpt_path: user_data/checkpoints/
+  mode: pretrain
   seed: 0
   k_fold: 5
   batch_size: 32
@@ -23,3 +25,4 @@ solver:
   pretrain_num_epochs: 50
   train_num_epochs: 2
   max_grad_norm: 1.0
+

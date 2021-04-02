@@ -21,7 +21,7 @@ class BertMaskedLM(Module):
             labels=batch['lm_label_ids'],
             return_dict=True
         )
-        loss= outputs[0]
+        loss= outputs['loss']
 
         return loss
 
@@ -73,6 +73,7 @@ class PretrainInnoModel(pl.LightningModule):
         # logits = self.model(batch)
         # loss = self.criterion_fn(logits, batch['labels'])
         loss = self.model(batch)
+        self.log('train_loss', loss, prog_bar=True, logger=True)
         return loss
 
     def configure_optimizers(self):
@@ -88,9 +89,7 @@ class PretrainInnoModel(pl.LightningModule):
                                       num_warmup_steps=warmup_steps,
                                       num_tranining_steps=total_steps)
 
-        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
-
-
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
 
 class TrainInnoModel(pl.LightningModule):
@@ -139,6 +138,20 @@ class TrainInnoModel(pl.LightningModule):
         self.log('test_loss', loss, prog_bar=True, logger=True)
         self.log('test_auc', auc, prog_bar=True, logger=True)
         return loss, auc
+
+    def test_epoch_end(self, outputs):
+        # # outputs has all the output for test data
+        # y_hat = torch.cat([x['y_hat'] for x in outputs])
+        #
+        # # Below line will fail if it is a fast_dev_run=True, as outputs has only one batch
+        # test['target'] = y_hat.tolist()
+        #
+        # # Two required columns into submission csv
+        # header = ["image_name", "target"]
+        # test.to_csv(f'submission{self.hparams.fold}.csv', columns=header, index=False)
+        #
+        # return
+        pass
 
     # def setup(self, stage):
     #     if stage == 'fit':
